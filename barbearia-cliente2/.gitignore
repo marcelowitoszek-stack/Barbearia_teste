@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+dados/pedidos.jsonl
+dados/configuracoes.json
+
+# Chave da conta de servico do Google (NUNCA publique)
+dados/*.json
+!dados/catalogo.json
+dados/pausas.json
+dados/vip.json

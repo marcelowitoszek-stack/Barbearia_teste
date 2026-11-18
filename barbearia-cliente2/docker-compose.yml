@@ -1,0 +1,91 @@
+# Tudo roda nesta maquina: banco, Evolution API (WhatsApp) e o agente (Gemini).
+# Nao precisa de dominio, HTTPS nem servidor na nuvem: a Evolution entrega as
+# mensagens para o agente pela rede interna do Docker.
+#
+# As portas ficam presas em 127.0.0.1 de proposito: so este computador acessa
+# o painel e a Evolution. Ninguem da rede/internet consegue entrar.
+
+name: barbearia-cliente2
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${POSTGRES_SENHA:?Rode o instalador para gerar o .env}
+      POSTGRES_DB: evolution
+    volumes:
+      - postgres_dados:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  evolution:
+    image: evoapicloud/evolution-api:v2.3.7
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${EVOLUTION_PORTA:-8787}:8080"
+    environment:
+      SERVER_TYPE: http
+      SERVER_PORT: 8080
+      SERVER_URL: http://localhost:${EVOLUTION_PORTA:-8787}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:?Rode o instalador para gerar o .env}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
+      LANGUAGE: pt-BR
+      LOG_LEVEL: ERROR,WARN
+      LOG_BAILEYS: error
+      DEL_INSTANCE: "false"
+      QRCODE_LIMIT: 30
+      CONFIG_SESSION_PHONE_CLIENT: ${EMPRESA_NOME:-Barbearia}
+      CONFIG_SESSION_PHONE_NAME: Chrome
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${POSTGRES_SENHA}@postgres:5432/evolution?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: barbearia
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      DATABASE_SAVE_DATA_LABELS: "true"
+      DATABASE_SAVE_DATA_HISTORIC: "false"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+      WEBHOOK_GLOBAL_ENABLED: "false"
+    volumes:
+      - evolution_instancias:/evolution/instances
+
+  agente:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - evolution
+    env_file:
+      - .env
+    environment:
+      # Enderecos internos da rede Docker -- nao mude.
+      EVOLUTION_URL: http://evolution:8080
+      WEBHOOK_URL_INTERNA: http://agente:3000/webhook
+      DADOS_DIR: /app/dados
+      PORT: 3000
+    ports:
+      - "127.0.0.1:${PAINEL_PORTA:-3737}:3000"
+    volumes:
+      # Catalogo e pedidos ficam na pasta ./dados, editaveis e com backup facil.
+      - ./dados:/app/dados
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  postgres_dados:
+  evolution_instancias:
